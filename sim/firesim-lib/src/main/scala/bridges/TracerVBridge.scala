@@ -205,8 +205,14 @@ class TracerVBridgeModule(key: TracerVKey)(implicit p: Parameters)
     hPort.hBits.triggerDebit := !trigger && triggerReg
     hPort.hBits.triggerCredit := trigger && !triggerReg
 
-    val uint_traces = (traces map (trace => Cat(trace.valid, trace.iaddr).pad(64))).reverse
-    streamEnq.bits := Cat(uint_traces :+ trace_cycle_counter.pad(64)).pad(BridgeStreamConstants.streamWidthBits)
+    if(traces.length == 1) {
+      val trace = traces(0);
+      // midas.targetutils.SynthesizePrintf(printf("Inst:0x%x satp: 0x%x priv: 0x%x\n", trace.insn, trace.satp, trace.priv))
+      streamEnq.bits := Cat(trace.priv.pad(64), trace.satp, trace.insn.pad(64), Cat(trace.valid, trace.iaddr).pad(64), trace_cycle_counter.pad(64)).pad(BridgeStreamConstants.streamWidthBits)
+    } else {
+      val uint_traces = (traces map (trace => Cat(trace.valid, trace.iaddr).pad(64))).reverse
+      streamEnq.bits := Cat(uint_traces :+ trace_cycle_counter.pad(64)).pad(BridgeStreamConstants.streamWidthBits)
+    }
 
     hPort.toHost.hReady := tFireHelper.fire(hPort.toHost.hValid)
     hPort.fromHost.hValid := tFireHelper.fire(hPort.fromHost.hReady)

@@ -223,7 +223,7 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
       minimum_batch_beats * BridgeConstants::STREAM_WIDTH_BYTES;
   // TODO. as opt can mmap file and just load directly into it.
   alignas(4096)
-      uint64_t OUTBUF[this->stream_depth * BridgeConstants::STREAM_WIDTH_BYTES];
+      uint64_t OUTBUF[this->stream_depth * BridgeConstants::STREAM_WIDTH_BYTES] = {0};
   auto bytes_received = pull(this->stream_idx,
                              (char *)OUTBUF,
                              maximum_batch_bytes,
@@ -245,6 +245,19 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
           fprintf(this->tracefile, "%016lx\n", OUTBUF[i + 0]);
           // At least one valid instruction
         } else {
+					if (OUTBUF[i + 1] & valid_mask) {
+						fprintf(this->tracefile,
+								"Cycle: %016" PRId64 " I%d: %016" PRIx64 " Inst: %016" PRIx64 " satp: %016" PRIx64 " priv: %016" PRIx64 "\n",
+								OUTBUF[i + 0], // cycle_count
+								0,
+								OUTBUF[i + 1] & (~valid_mask), // pc
+								OUTBUF[i + 2],  // instr
+								OUTBUF[i + 3],  // satp
+								OUTBUF[i + 4]);  // priv
+					} else {
+						break;
+					}
+				/*
           for (int q = 0; q < max_core_ipc; q++) {
             if (OUTBUF[i + q + 1] & valid_mask) {
               fprintf(this->tracefile,
@@ -255,7 +268,8 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
             } else {
               break;
             }
-          }
+	  			}
+				*/
         }
       }
     } else if (this->fireperf) {
