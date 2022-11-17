@@ -4,6 +4,7 @@
 [submodule "target-design/chipyard"]
 	path = target-design/chipyard
 	url = https://github.com/ucb-bar/chipyard
+	branch = fireperf-userspace
 [submodule "sw/network-benchmarks"]
 	path = sw/network-benchmarks
 	url = https://github.com/firesim/network-benchmarks.git

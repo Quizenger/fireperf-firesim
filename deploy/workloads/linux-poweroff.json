@@ -5,7 +5,7 @@
   "common_args" : [],
   "common_files" : [],
   "common_outputs" : [],
-  "common_simulation_outputs" : ["uartlog"],
+  "common_simulation_outputs" : ["uartlog", "*waveform.vpd", "TRACEFILE*"],
   "no_post_run_hook": "",
   "workloads" : [
     {
