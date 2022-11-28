@@ -1,0 +1,11 @@
+{
+	"benchmark_name": "fireperf-userspace",
+	"common_simulation_outputs": [
+		"uartlog", "TRACEFILE*"
+	],
+	"common_simulation_inputs": [
+		"dwarfs"
+	],
+	"common_bootbinary": "fireperf-userspace-bin",
+	"common_rootfs": "fireperf-userspace.img"
+}
