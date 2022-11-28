@@ -233,6 +233,7 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
   // TracerV bridge still exists, and no tracefile is created by default.
   if (this->tracefile) {
     if (this->human_readable || this->test_output) {
+	/* Account for q = 1 */
       for (int i = 0; i < (bytes_received / sizeof(uint64_t)); i += 8) {
         if (this->test_output) {
           fprintf(this->tracefile, "%016lx", OUTBUF[i + 7]);
@@ -273,7 +274,7 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
         }
       }
     } else if (this->fireperf) {
-
+	/* Account for q = 1 */
       for (int i = 0; i < (bytes_received / sizeof(uint64_t)); i += 8) {
         uint64_t cycle_internal = OUTBUF[i + 0];
 
@@ -290,6 +291,7 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
         }
       }
     } else {
+	/* Account for q = 1 */
       for (int i = 0; i < (bytes_received / sizeof(uint64_t)); i += 8) {
         // this stores as raw binary. stored as little endian.
         // e.g. to get the same thing as the human readable above,
