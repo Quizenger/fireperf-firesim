@@ -1,5 +1,5 @@
 // See LICENSE for license details
-#ifdef TRACERVBRIDGEMODULE_struct_guard
+//#ifdef TRACERVBRIDGEMODULE_struct_guard
 
 #include "tracerv.h"
 
@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include "trace_tracker.h"
 
 #include <sys/mman.h>
 
@@ -211,7 +212,7 @@ void tracerv_t::init() {
     write(this->mmio_addrs->triggerSelector, this->trigger_selector);
     printf("TracerV: No trigger selected. Trigger enabled from %lu to %lu "
            "cycles\n",
-           0ul,
+           0,
            ULONG_MAX);
   }
   write(this->mmio_addrs->initDone, true);
@@ -267,7 +268,12 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
           if (OUTBUF[i + 1 + q] & valid_mask) {
             uint64_t iaddr =
                 (uint64_t)((((int64_t)(OUTBUF[i + 1 + q])) << 24) >> 24);
-            this->trace_tracker->addInstruction(iaddr, cycle_internal);
+            struct token_t token;
+            token.cycle_count = cycle_internal;
+            token.iaddr = iaddr;
+            token.inst = 0; //TODO
+            // TODO: push the data into the token struct
+            this->trace_tracker->addInstruction(token);
 #ifdef FIREPERF_LOGGER
             fprintf(this->tracefile, "%016llx", iaddr);
             fprintf(this->tracefile, "%016llx\n", cycle_internal);
@@ -281,7 +287,9 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
         // e.g. to get the same thing as the human readable above,
         // flip all the bytes in each 512-bit line.
         for (int q = 0; q < 8; q++) {
-          fwrite(OUTBUF + (i + q), sizeof(uint64_t), 1, this->tracefile);
+          if (OUTBUF + )
+          //fwrite(OUTBUF + (i + q), sizeof(uint64_t), 1, this->tracefile);
+          
         }
       }
     }
@@ -300,4 +308,4 @@ void tracerv_t::flush() {
   while (this->trace_enabled && (process_tokens(this->stream_depth, 0) > 0))
     ;
 }
-#endif // TRACERVBRIDGEMODULE_struct_guard
+//#endif // TRACERVBRIDGEMODULE_struct_guard

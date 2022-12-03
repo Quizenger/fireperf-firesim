@@ -15,6 +15,7 @@ ObjdumpedBinary::ObjdumpedBinary(std::string binaryWithDwarf) {
     perror("open");
     return;
   }
+  this->bin_name.assing(binaryWithDwarf);
 
   subroutine_map table;
   uint64_t base, limit;

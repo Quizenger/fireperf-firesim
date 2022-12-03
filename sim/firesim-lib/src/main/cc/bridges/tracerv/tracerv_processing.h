@@ -35,10 +35,10 @@ public:
 
 class ObjdumpedBinary {
   // base address subtracted before lookup into array
-  uint64_t baseaddr;
-  std::vector<Instr *> progtext;
-
 public:
+  uint64_t baseaddr;
+  std::string bin_name;
+  std::vector<Instr *> progtext;
   ObjdumpedBinary(std::string binaryWithDwarf);
   Instr *getInstrFromAddr(uint64_t lookupaddress);
 };
