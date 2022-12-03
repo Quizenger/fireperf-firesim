@@ -4,7 +4,7 @@
 		"uartlog", "TRACEFILE*"
 	],
 	"common_simulation_inputs": [
-		"dwarfs"
+		"dwarfs", "fireperf-userspace-bin-dwarf"
 	],
 	"common_bootbinary": "fireperf-userspace-bin",
 	"common_rootfs": "fireperf-userspace.img"
