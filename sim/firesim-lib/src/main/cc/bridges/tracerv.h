@@ -12,9 +12,10 @@
 
 // Bridge Driver Instantiation Template
 #define INSTANTIATE_TRACERV(FUNC, IDX)                                         \
+  TRACERVBRIDGEMODULE_##IDX##_substruct_create;                                \
   FUNC(new tracerv_t(this,                                                     \
                      args,                                                     \
-                     TRACERVBRIDGEMODULE_##IDX##_substruct_create,             \
+                     TRACERVBRIDGEMODULE_##IDX##_substruct,                    \
                      TRACERVBRIDGEMODULE_##IDX##_to_cpu_stream_idx,            \
                      TRACERVBRIDGEMODULE_##IDX##_to_cpu_stream_depth,          \
                      TRACERVBRIDGEMODULE_##IDX##_max_core_ipc,                 \
@@ -29,7 +30,7 @@ class tracerv_t : public bridge_driver_t
 public:
   tracerv_t(simif_t *sim,
             std::vector<std::string> &args,
-            const TRACERVBRIDGEMODULE_struct &mmio_addrs,
+            TRACERVBRIDGEMODULE_struct *mmio_addrs,
             const int stream_idx,
             const int stream_depth,
             const unsigned int max_core_ipc,
@@ -46,7 +47,7 @@ public:
   virtual void finish() { flush(); };
 
 private:
-  const TRACERVBRIDGEMODULE_struct mmio_addrs;
+  TRACERVBRIDGEMODULE_struct *mmio_addrs;
   const int stream_idx;
   const int stream_depth;
   const int max_core_ipc;

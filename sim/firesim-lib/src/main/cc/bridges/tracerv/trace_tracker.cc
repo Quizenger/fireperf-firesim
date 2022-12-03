@@ -187,14 +187,38 @@ void TraceTracker::addInstruction(struct token_t token, bool buffer_flush_mode) 
   }
   return;
 #endif
-
-  std::string label;
-  if (TraceTracker::matchInstruction(cur_token)) {
-    label = cur_token.instr_meta->function_name;
-  } else {
-    label = std::string("USERSPACE_ALL");
-  }
+  bool matched = TraceTracker::matchInstruction(cur_token);
   Instr *this_instr = cur_token.instr_meta;
+
+  if (!matched) {
+    if ((label_stack.size() == 1) &&
+        (std::string("USERSPACE_ALL")
+            .compare(label_stack[label_stack.size() - 1]->label) == 0)) {
+      LabelMeta *last_label = label_stack[label_stack.size() - 1];
+      last_label->end_cycle = cycle;
+    } else {
+      while (label_stack.size() > 0) {
+        LabelMeta *pop_label = label_stack[label_stack.size() - 1];
+        label_stack.pop_back();
+        pop_label->post_print(this->tracefile);
+        delete pop_label;
+        if (label_stack.size() > 0) {
+          LabelMeta *last_label = label_stack[label_stack.size() - 1];
+          last_label->end_cycle = cycle;
+        }
+      }
+      LabelMeta *new_label = new LabelMeta();
+      new_label->label = std::string("USERSPACE_ALL");
+      new_label->start_cycle = cycle;
+      new_label->end_cycle = cycle;
+      new_label->indent = label_stack.size() + 1;
+      new_label->asm_sequence = false;
+      label_stack.push_back(new_label);
+      new_label->pre_print(this->tracefile);
+    }
+  } else {
+    std::string label;
+    label = cur_token.instr_meta->function_name;
     /* 
       CURR BEHAVIOR:
         If prev instr was userspace all, end it
@@ -307,6 +331,7 @@ void TraceTracker::addInstruction(struct token_t token, bool buffer_flush_mode) 
       }
     }
     this->last_instr = this_instr;
+  }
 }
 
 #ifdef TRACERV_TOP_MAIN
