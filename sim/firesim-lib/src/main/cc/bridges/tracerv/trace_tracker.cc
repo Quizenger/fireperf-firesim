@@ -7,6 +7,21 @@
 #define PAGE_OFFSET_BITS 4096
 
 //#define TRACETRACKER_LOG_PC_REGION
+
+
+/*
+  TraceTracker file structure assumption:
+  --/{path_to_dir_with_dwarfs}
+  ---/kernel
+  ------/fireperf-userspace-bin-dwarf (file)
+  ---/user
+  ------/{program_1_name}
+  --------/dwarf (file)
+  --------/hex   (file)
+  ------/{program_2_name}
+  --------/dwarf (file)
+  --------/hex   (file)
+*/
 TraceTracker::TraceTracker(std::string path_to_dir_with_dwarfs, FILE *tracefile) {
   // Map objdumpedbinary object of kernel dwarf
   this->bins_dump_map[KERNEL_KEY].push_back(new ObjdumpedBinary(path_to_dir_with_dwarfs + std::string("/kernel/fireperf-userspace-bin-dwarf")));
