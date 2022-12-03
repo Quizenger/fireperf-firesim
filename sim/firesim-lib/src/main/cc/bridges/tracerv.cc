@@ -247,18 +247,18 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
           fprintf(this->tracefile, "%016lx\n", OUTBUF[i + 0]);
           // At least one valid instruction
         } else {
-					if (OUTBUF[i + 1] & valid_mask) {
-						fprintf(this->tracefile,
-								"Cycle: %016" PRId64 " I%d: %016" PRIx64 " Inst: %016" PRIx64 " satp: %016" PRIx64 " priv: %016" PRIx64 "\n",
-								OUTBUF[i + 0], // cycle_count
-								0,
-								OUTBUF[i + 1] & (~valid_mask), // pc
-								OUTBUF[i + 2],  // instr
-								OUTBUF[i + 3],  // satp
-								OUTBUF[i + 4]);  // priv
-					} else {
-						break;
-					}
+			if (OUTBUF[i + 1] & valid_mask) {
+				fprintf(this->tracefile,
+						"Cycle: %016" PRId64 " I%d: %016" PRIx64 " Inst: %016" PRIx64 " satp: %016" PRIx64 " priv: %016" PRIx64 "\n",
+						OUTBUF[i + 0], // cycle_count
+						0,
+						OUTBUF[i + 1] & (~valid_mask), // pc
+						OUTBUF[i + 2],  // instr
+						OUTBUF[i + 3],  // satp
+						OUTBUF[i + 4]);  // priv
+			} else {
+				break;
+			}
 				/*
           for (int q = 0; q < max_core_ipc; q++) {
             if (OUTBUF[i + q + 1] & valid_mask) {
@@ -278,8 +278,25 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
 	/* Account for q = 1 */
       for (int i = 0; i < (bytes_received / sizeof(uint64_t)); i += 8) {
         uint64_t cycle_internal = OUTBUF[i + 0];
-
-        for (int q = 0; q < max_core_ipc; q++) {
+		if (OUTBUF[i + 1] & valid_mask) {
+	    	// iaddr is 40 bits, wipe out 64-40 = 24 bits
+            uint64_t iaddr =
+                (uint64_t)((((int64_t)(OUTBUF[i + 1])) << 24) >> 24);
+            struct token_t token;
+            token.cycle_count = cycle_internal;
+            token.iaddr = iaddr;
+			token.inst = OUTBUF[i + 2];
+            token.satp = OUTBUF[i + 3];
+			token.priv = (uint8_t) OUTBUF[i + 4];
+            this->trace_tracker->addInstruction(token);
+#ifdef FIREPERF_LOGGER
+            fprintf(this->tracefile, "%016llx", iaddr);
+            fprintf(this->tracefile, "%016llx\n", cycle_internal);
+#endif // FIREPERF_LOGGER
+		}
+      }
+        /*
+	 * for (int q = 0; q < max_core_ipc; q++) {
           if (OUTBUF[i + 1 + q] & valid_mask) {
             uint64_t iaddr =
                 (uint64_t)((((int64_t)(OUTBUF[i + 1 + q])) << 24) >> 24);
@@ -295,7 +312,7 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
 #endif // FIREPERF_LOGGER
           }
         }
-      }
+	*/
     } else {
 	/* Account for q = 1 */
       for (int i = 0; i < (bytes_received / sizeof(uint64_t)); i += 8) {
