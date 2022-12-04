@@ -7,10 +7,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
-#ifndef _XOPEN_SOURCE
 #define _XOPEN_SOURCE
-#endif
-
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -42,10 +39,9 @@ void sighand(int s) {
 }
 #endif
 
-uart_t::uart_t(simif_t *sim,
-               const UARTBRIDGEMODULE_struct &mmio_addrs,
-               int uartno)
-    : bridge_driver_t(sim), mmio_addrs(mmio_addrs) {
+uart_t::uart_t(simif_t *sim, UARTBRIDGEMODULE_struct *mmio_addrs, int uartno)
+    : bridge_driver_t(sim) {
+  this->mmio_addrs = mmio_addrs;
   this->loggingfd = 0; // unused
 
   if (uartno == 0) {
@@ -92,23 +88,26 @@ uart_t::uart_t(simif_t *sim,
   fcntl(inputfd, F_SETFL, fcntl(inputfd, F_GETFL) | O_NONBLOCK);
 }
 
-uart_t::~uart_t() { close(this->loggingfd); }
+uart_t::~uart_t() {
+  free(this->mmio_addrs);
+  close(this->loggingfd);
+}
 
 void uart_t::send() {
   if (data.in.fire()) {
-    write(mmio_addrs.in_bits, data.in.bits);
-    write(mmio_addrs.in_valid, data.in.valid);
+    write(this->mmio_addrs->in_bits, data.in.bits);
+    write(this->mmio_addrs->in_valid, data.in.valid);
   }
   if (data.out.fire()) {
-    write(mmio_addrs.out_ready, data.out.ready);
+    write(this->mmio_addrs->out_ready, data.out.ready);
   }
 }
 
 void uart_t::recv() {
-  data.in.ready = read(mmio_addrs.in_ready);
-  data.out.valid = read(mmio_addrs.out_valid);
+  data.in.ready = read(this->mmio_addrs->in_ready);
+  data.out.valid = read(this->mmio_addrs->out_valid);
   if (data.out.valid) {
-    data.out.bits = read(mmio_addrs.out_bits);
+    data.out.bits = read(this->mmio_addrs->out_bits);
   }
 }
 

@@ -39,7 +39,7 @@ public:
              const std::vector<std::string> &args,
              uint32_t num_trackers,
              uint32_t latency_bits,
-             const BLOCKDEVBRIDGEMODULE_struct &mmio_addrs,
+             BLOCKDEVBRIDGEMODULE_struct *mmio_addrs,
              int blkdevno);
   ~blockdev_t();
 
@@ -55,12 +55,19 @@ public:
   virtual void finish(){};
 
 private:
-  const BLOCKDEVBRIDGEMODULE_struct mmio_addrs;
+  BLOCKDEVBRIDGEMODULE_struct *mmio_addrs;
+  bool a_req_valid;
+  bool a_req_ready;
+  bool a_data_valid;
+  bool a_data_ready;
+  bool a_resp_valid;
+  bool a_resp_ready;
 
   // Set if, on the previous tick, we couldn't write back all of our response
   // data
   bool resp_data_pending = false;
 
+  simif_t *sim;
   uint32_t _ntags;
   uint32_t _nsectors;
   FILE *_file, *logfile;

@@ -7,8 +7,9 @@
 #include "bridges/tracerv/trace_tracker.h"
 #include "bridges/tracerv/tracerv_processing.h"
 #include <vector>
+#include <deque>
 
-#ifdef TRACERVBRIDGEMODULE_struct_guard
+//#ifdef TRACERVBRIDGEMODULE_struct_guard
 
 // Bridge Driver Instantiation Template
 #define INSTANTIATE_TRACERV(FUNC, IDX)                                         \
@@ -47,13 +48,26 @@ public:
   virtual void finish() { flush(); };
 
 private:
+  bool buffer_flush_mode;
+  // matching specific data structures
+  const uint8_t BUFFER_SIZE = 200;
+  const uint8_t MATCHING_DEPTH = 6;
+  std::deque<struct token_t> retired_buffer;
+  ObjdumpedBinary* kernel_objdump; 
+  std::map<uint64_t, std::map<uint64_t, struct bin_page_pair_t>> satp_page_cache;
+  std::vector<std::map<uint64_t, std::vector<struct bin_page_pair_t>>> offset_inst_to_page;
+  bool tracerv_t::filterBuffer(struct token_t *, uint64_t);
+  bool tracerv_t::mapContains(std::vector<struct bin_page_pair_t>, uint64_t, ObjdumpedBinary *);
+  void tracerv_t::matchAddInstruction(struct token_t, bool);
   TRACERVBRIDGEMODULE_struct *mmio_addrs;
+
   const int stream_idx;
   const int stream_depth;
   const int max_core_ipc;
   ClockInfo clock_info;
 
-  FILE *tracefile;
+  FILE * tracefile; //Dummy for non-fireperf modes, does not work currently //FIXME
+  std::map<std::string, FILE *> tracefiles;
   uint64_t cur_cycle;
   uint64_t trace_trigger_start, trace_trigger_end;
   uint32_t trigger_start_insn = 0;
@@ -64,9 +78,8 @@ private:
   uint64_t trigger_start_pc = 0;
   uint64_t trigger_stop_pc = 0;
 
-  // TODO: rename this from linuxbin
-  ObjdumpedBinary *linuxbin;
-  TraceTracker *trace_tracker;
+  // Kernel has a TraceTracker, each userspace program has a TraceTracker object as well
+  std::map<std::string, TraceTracker *> trace_trackers;
 
   bool human_readable = false;
   // If no filename is provided, the instruction trace is not collected
@@ -77,13 +90,15 @@ private:
   bool test_output = false;
   long dma_addr;
   std::string tracefilename;
-  std::string dwarf_file_name;
+  std::string dwarf_dir_name;
   bool fireperf = false;
 
   size_t process_tokens(int num_beats, int minium_batch_beats);
+  bool tracerv_t::matchInstruction(struct token_t &token);
   int beats_available_stable();
+  size_t tracerv_t::copyFile(FILE*, FILE*);
   void flush();
 };
-#endif // TRACERVBRIDGEMODULE_struct_guard
+//#endif // TRACERVBRIDGEMODULE_struct_guard
 
 #endif // __TRACERV_H

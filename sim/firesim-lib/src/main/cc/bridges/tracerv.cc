@@ -1,5 +1,5 @@
 // See LICENSE for license details
-#ifdef TRACERVBRIDGEMODULE_struct_guard
+//#ifdef TRACERVBRIDGEMODULE_struct_guard
 
 #include "tracerv.h"
 
@@ -21,6 +21,24 @@
 //#define FIREPERF_LOGGER
 
 constexpr uint64_t valid_mask = (1ULL << 40);
+constexpr uint64_t BYTES_PER_PAGE = 4096;
+constexpr uint64_t INSTRUCTION_PER_PAGE = 2048;
+
+const uint8_t BUFF_SIZE = 100;
+
+/*
+  tracerv_t file structure assumption:
+  --/{dwarf_dir_name}
+  ---/kernel
+  ------/dwarf (file)
+  ---/user
+  ------/{program_1_name}
+  --------/dwarf (file)
+  --------/hex   (file)
+  ------/{program_2_name}
+  --------/dwarf (file)
+  --------/hex   (file)
+*/
 
 tracerv_t::tracerv_t(simif_t *sim,
                      std::vector<std::string> &args,
@@ -39,14 +57,14 @@ tracerv_t::tracerv_t(simif_t *sim,
   assert(this->max_core_ipc <= 7 &&
          "TracerV only supports cores with a maximum IPC <= 7");
   const char *tracefilename = NULL;
-  const char *dwarf_file_name = NULL;
-  this->tracefile = NULL;
+  const char *dwarf_dir_name = NULL;
 
+  this->buffer_flush_mode = true; // to flush the retired buffer
   this->trace_trigger_start = 0;
   this->trace_trigger_end = ULONG_MAX;
   this->trigger_selector = 0;
   this->tracefilename = "";
-  this->dwarf_file_name = "";
+  this->dwarf_dir_name = "";
 
   long outputfmtselect = 0;
 
@@ -103,22 +121,50 @@ tracerv_t::tracerv_t(simif_t *sim,
       outputfmtselect = atol(str);
     }
     if (arg.find(dwarf_file_arg) == 0) {
-      dwarf_file_name =
+      dwarf_dir_name =
           const_cast<char *>(arg.c_str()) + dwarf_file_arg.length();
-      this->dwarf_file_name = std::string(dwarf_file_name);
+      this->dwarf_dir_name = std::string(dwarf_dir_name);
     }
   }
 
   if (tracefilename) {
-    // giving no tracefilename means we will create NO tracefiles
-    std::string tfname = std::string(tracefilename) + std::string("-C") +
-                         std::to_string(tracerno);
-    this->tracefile = fopen(tfname.c_str(), "w");
-    if (!this->tracefile) {
-      fprintf(stderr, "Could not open Trace log file: %s\n", tracefilename);
+    // final tracefile is created here and populated in the destructor by concatenating 
+    //user space tracefiles and kernel tracefile
+    std::string tfname = std::string(tracefilename) + std::string("-C") + std::to_string(tracerno);
+    FILE *f = fopen(tfname.c_str(), "w");
+    if (!f) {
+      fprintf(stderr, "Could not open Trace log file: %s\n", tfname.c_str());
       abort();
     }
-    fputs(this->clock_info.file_header().c_str(), this->tracefile);
+    this->tracefiles["final"] = f;
+    // giving no tracefilename means we will create NO tracefiles
+    tfname = std::string(tracefilename) + std::string("-kernel") + std::string("-C") +
+                         std::to_string(tracerno);
+    f = fopen(tfname.c_str(), "w");
+    if (!f) {
+      fprintf(stderr, "Could not open Trace log file: %s\n", tfname.c_str());
+      abort();
+    }
+    this->tracefiles["kernel"] = f;
+    tfname = std::string(tracefilename) + std::string("-misc") + std::string("-C") + std::to_string(tracerno);
+    f = fopen(tfname.c_str(), "w");
+    if (!f) {
+      fprintf(stderr, "Could not open Trace log file: %s\n", tfname.c_str());
+      abort();
+    }
+    this->tracefiles["misc"] = f;
+    for (auto const &user_program : std::filesystem::directory_iterator(this->dwarf_dir_name + std::string("/user"))) {
+      std::string user_program_name = std::filesystem::path(user_program).filename();
+      tfname = std::string(tracefilename) + std::string("-") + user_program_name + 
+                std::string("-C") + std::to_string(tracerno);
+      f = fopen(tfname.c_str(), "w");
+      if (!f) {
+        fprintf(stderr, "Could not open Trace log file: %s\n", tfname.c_str());
+        abort();
+      }
+      this->tracefiles[user_program_name] = f;
+    }
+    fputs(this->clock_info.file_header().c_str(), this->tracefiles["final"]);
 
     // This must be kept consistent with config_runtime.ini's output_format.
     // That file's comments are the single source of truth for this.
@@ -143,18 +189,86 @@ tracerv_t::tracerv_t(simif_t *sim,
   }
 
   if (fireperf) {
-    if (this->dwarf_file_name.compare("") == 0) {
+    if (this->dwarf_dir_name.compare("") == 0) {
       fprintf(stderr, "+fireperf specified but no +dwarf-file-name given\n");
       abort();
     }
-    this->trace_tracker =
-        new TraceTracker(this->dwarf_file_name, this->tracefile);
+    this->trace_trackers["kernel"] = new TraceTracker(this->tracefiles["kernel"]);
+    this->trace_trackers["misc"] = new TraceTracker(this->tracefiles["misc"]);
+    
+    for (auto const &user_program : std::filesystem::directory_iterator(this->dwarf_dir_name + std::string("/user"))) {
+      std::string user_program_name = std::filesystem::path(user_program).filename();
+      this->trace_trackers[user_program_name] = 
+        new TraceTracker(this->tracefiles[user_program_name]);
+    } 
+  }
+
+  // Initilize the vector of maps of offset_inst_to_page 
+  for (int i = 0; i < INSTRUCTION_PER_PAGE; i++) {
+    std::map<uint64_t, std::vector<struct bin_page_pair_t>> m;
+    this->offset_inst_to_page.push_back(m);
+  }
+
+  // Map objdumpedbinary object of kernel dwarf
+  this->kernel_objdump = new ObjdumpedBinary(this->dwarf_dir_name + std::string("/kernel/dwarf"));
+  
+  char *buf = (char*) malloc(sizeof(char) * BUFF_SIZE);
+  FILE *f;
+  for (auto &user_program : std::filesystem::directory_iterator(this->dwarf_dir_name + std::string("/user"))) {
+    std::string user_program_path = std::filesystem::path(user_program).string();
+    // create object dumped binary object per binary dwarf file
+    ObjdumpedBinary *dumped = new ObjdumpedBinary(user_program_path + std::string("/dwarf"));
+    // read the corresponding hexdumped file to map instructions to binary and base addresses pairs
+    f = fopen((user_program_path + std::string("/hex")).c_str(), "r");
+    if (!f) {
+      perror("hex file open failed.");
+      return;
+    }
+    // parse through the hexdumped file for each instructions and addresses and push them into the map
+    while (getline(&buf, (size_t *) &BUFF_SIZE, f) != -1) {
+      char *ptr = strtok(buf, " ");
+      uint64_t addr = strtoll(ptr, NULL, 16);
+      uint64_t instr;
+      ptr = strtok(NULL, " ");
+      instr = strtoll(ptr, NULL, 16);
+      // 4096 for 4k pages, right shift by 2 to get rid of byte offset
+      int offset_index = ((addr % BYTES_PER_PAGE) >> 1);
+      struct bin_page_pair_t pair;
+      pair.bin = dumped;
+      // upper bits are the page address bits 
+      pair.page_base = (addr >> 12) << 12;
+      this->offset_inst_to_page.at(offset_index)[instr].push_back(pair);
+    }
   }
 }
 
+size_t tracerv_t::copyFile(FILE* to, FILE* from) {
+  fseek(from, 0, SEEK_SET);
+  char c;
+  c = fgetc(from);
+  size_t read = 0;
+  while (c) {
+    read += fputc(c, to);
+    c = fgetc(from);
+  }
+  return read;
+}
+
 tracerv_t::~tracerv_t() {
-  if (this->tracefile) {
-    fclose(this->tracefile);
+  FILE *final = this->tracefiles["final"];
+  if (this->tracefiles.size() > 0) {
+    for (auto const &f : this->tracefiles) {
+      if (f.first.compare("final") != 0) {
+        size_t copied = tracerv_t::copyFile(final, f.second); // FIXME: SLOW
+        // maybe use the below one once you are sure it works
+        //x += copy_file_range(fileno(f.second), &of, fileno(final), (loff_t *) &x, ftell(f.second), 0); 
+        if (copied == 0) {
+          fprintf(stderr, "WARN: tracefile %s did not copy any bytes to the final tracefile", f.first);
+        }
+        fclose(f.second);
+      }
+    }
+    fclose(final);
   }
   free(this->mmio_addrs);
 }
@@ -232,7 +346,7 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
   // check that a tracefile exists (one is enough) since the manager
   // does not create a tracefile when trace_enable is disabled, but the
   // TracerV bridge still exists, and no tracefile is created by default.
-  if (this->tracefile) {
+  if (this->tracefiles.size() > 0) {
     if (this->human_readable || this->test_output) {
       for (int i = 0; i < (bytes_received / sizeof(uint64_t)); i += 8) {
         if (this->test_output) {
@@ -273,7 +387,8 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
             token.iaddr = iaddr;
             token.inst = 0; //TODO
             // TODO: push the data into the token struct
-            this->trace_tracker->addInstruction(token);
+            // TODO: RAGHAV PLEASE DO THIS ONE
+            tracerv_t::matchAddInstruction(token, false);
 #ifdef FIREPERF_LOGGER
             fprintf(this->tracefile, "%016llx", iaddr);
             fprintf(this->tracefile, "%016llx\n", cycle_internal);
@@ -305,5 +420,131 @@ void tracerv_t::tick() {
 void tracerv_t::flush() {
   while (this->trace_enabled && (process_tokens(this->stream_depth, 0) > 0))
     ;
+  while (this->retired_buffer.size() > 0) {
+    struct token_t t;
+    matchAddInstruction(t, true);
+  }
 }
-#endif // TRACERVBRIDGEMODULE_struct_guard
+
+void tracerv_t::matchAddInstruction(struct token_t token, bool flush) {
+  if (!flush)
+    this->retired_buffer.push_back(token);
+  if ((this->retired_buffer.size() < BUFFER_SIZE) or !this->buffer_flush_mode) { // TODO
+    return;
+  }
+  struct token_t cur_token = this->retired_buffer.front();
+  this->retired_buffer.pop_front();
+  if (tracerv_t::matchInstruction(cur_token)) {
+    this->trace_trackers[cur_token.bin->bin_name]->addInstruction(cur_token);
+  } else {
+    this->trace_trackers["misc"]->addInstruction(cur_token);
+  }
+}
+
+
+/*
+ Return the Instr object of each token.
+ Kernel: Calculate offset and lookup in file. 
+ User:
+ First check buffer entry; 
+ If hit, simply find Instr, 
+ otherwise exhaustive search of all "user" instrs with that asid+ppn
+   + mark all in buffer
+   + add cache entry to user_ppn_bin_cache 
+*/
+bool tracerv_t::matchInstruction(struct token_t &token) {
+  if (token.iaddr >= this->kernel_objdump->baseaddr && 
+                (token.iaddr - this->kernel_objdump->baseaddr) < this->kernel_objdump->progtext.size()) {
+    /* Kernel */
+    return this->kernel_objdump->progtext[token.iaddr - this->kernel_objdump->baseaddr];
+  } else {
+    /* user match by looking at buffer AND updating buffer */
+    if (token.instr_meta != nullptr) { // FIXME
+      return true;
+    }
+    std::vector<struct bin_page_pair_t> possible_sites = this->offset_inst_to_page.at((token.iaddr%BYTES_PER_PAGE) >> 1)[token.inst];
+    /* lookup in the cache for possible fast resolution and verify it was a hit by comparing the structs */
+    /*
+    if (this->satp_page_cache.count(token.satp) != 0 && this->satp_page_cache[token.satp].count(token.iaddr >> 12) != 0) {
+      struct bin_page_pair_t hit = this->satp_page_cache[token.satp][token.iaddr >> 12];
+      // possible bin is a hit but needs to be verified using the instruction bits
+      for (auto const &item : possible_sites) {
+        if (item.bin == hit.bin && item.page_base == hit.page_base) {
+          token.instr_meta = hit.bin->progtext[token.iaddr%BYTES_PER_PAGE + hit.page_base - hit.bin->baseaddr];
+          token.bin = hit.bin;
+          return true;
+        }
+      }
+    } 
+    */
+    /* regular matching if not found in cache or found some conflicting entries  and */
+    if (possible_sites.size() == 0) {
+      /* failed to find any matching binary, USERSPACE ALL */
+      return false;
+    } else if (possible_sites.size() == 1) {
+      /* best case, found the unique match */
+      token.instr_meta = possible_sites.at(0).bin->progtext[token.iaddr%BYTES_PER_PAGE + possible_sites.at(0).page_base - possible_sites.at(0).bin->baseaddr];
+      token.bin = possible_sites.at(0).bin;
+      return true;
+    } else {
+      /* no unique possible_sites were found */
+      std::vector<struct token_t *> matching_vec;
+      for (auto it = this->retired_buffer.begin(); matching_vec.size() < MATCHING_DEPTH && it != this->retired_buffer.end(); ++it) { 
+        if (filterBuffer(&(*it), token.satp)) {
+          matching_vec.push_back(&(*it));
+        }
+      }
+      std::vector<struct bin_page_pair_t> matched_sites;
+      for (auto const &s : possible_sites) {
+        for (size_t i = 0; i < matching_vec.size(); i++) {
+          struct token_t *m = matching_vec.at(i);
+          uint64_t p = ((m->iaddr >> 12) << 12) - ((token.iaddr >> 12) << 12) + s.page_base;
+          std::vector<struct bin_page_pair_t> v = this->offset_inst_to_page[(m->iaddr%BYTES_PER_PAGE) >> 1][m->inst];
+          if(!tracerv_t::mapContains(v, p, s.bin)) {
+            break;
+          }
+          if (i == matching_vec.size() - 1) {
+            matched_sites.push_back(s);
+          }
+        }
+      }
+      // check the number of matches sites; check if matched_sites binaries are the same in case there are more than 1
+      if (matched_sites.size() == 0)  {
+        // failed to find any matching
+        return false;
+      } else if (matched_sites.size() == 1) {
+        token.instr_meta = matched_sites.at(0).bin->progtext[token.iaddr%BYTES_PER_PAGE + matched_sites.at(0).page_base - matched_sites.at(0).bin->baseaddr];
+        token.bin = matched_sites.at(0).bin;
+        return true;
+      } else {
+        for (size_t i = 1; i < matched_sites.size(); i++) {  
+          if (matched_sites.at(0).bin != matched_sites.at(i).bin) { // FIXME
+            return false;
+          } 
+        }
+        //token.instr_meta = new Instr(); 
+        //token.instr_meta->function_name.assign(matched_sites.at(0).bin->bin_name); 
+        //token.bin = matched_sites.at(0).bin;
+        return false; // FIXME: throw to misc for now, but change later
+      }
+    }
+  }
+}
+
+bool tracerv_t::mapContains(std::vector <struct bin_page_pair_t> v, uint64_t page_base, ObjdumpedBinary *bin) {
+  for (auto const &el : v) {
+    if (el.bin == bin && el.page_base == page_base) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool tracerv_t::filterBuffer(struct token_t* token, uint64_t satp) {
+  if ((token->iaddr >= this->kernel_objdump->baseaddr 
+    && (token->iaddr - this->kernel_objdump->baseaddr) < this->kernel_objdump->progtext.size())
+    || satp != token->satp) 
+   return false;
+  return true; 
+}
+//#endif // TRACERVBRIDGEMODULE_struct_guard

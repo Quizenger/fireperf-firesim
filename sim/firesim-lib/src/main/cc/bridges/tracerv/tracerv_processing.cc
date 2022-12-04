@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <fcntl.h>
 #include <unistd.h>
+#inlcude <regex>
 
 ObjdumpedBinary::ObjdumpedBinary(std::string binaryWithDwarf) {
   // annotate with dwarf information
@@ -15,7 +16,10 @@ ObjdumpedBinary::ObjdumpedBinary(std::string binaryWithDwarf) {
     perror("open");
     return;
   }
-  this->bin_name.assign(binaryWithDwarf);
+  regex r("/user/(.+)/dwarf");
+  smatch m;
+  regex_search(binaryWithDwarf, m, r);
+  this->bin_name.assign(m[1]);
 
   subroutine_map table;
   uint64_t base, limit;

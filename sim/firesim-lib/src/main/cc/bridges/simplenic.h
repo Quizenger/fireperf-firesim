@@ -12,9 +12,10 @@
 #ifdef SIMPLENICBRIDGEMODULE_struct_guard
 
 #define INSTANTIATE_SIMPLENIC(FUNC, IDX)                                       \
+  SIMPLENICBRIDGEMODULE_##IDX##_substruct_create;                              \
   FUNC(new simplenic_t(this,                                                   \
                        args,                                                   \
-                       SIMPLENICBRIDGEMODULE_##IDX##_substruct_create,         \
+                       SIMPLENICBRIDGEMODULE_##IDX##_substruct,                \
                        IDX,                                                    \
                        SIMPLENICBRIDGEMODULE_##IDX##_to_cpu_stream_idx,        \
                        SIMPLENICBRIDGEMODULE_##IDX##_to_cpu_stream_depth,      \
@@ -25,7 +26,7 @@ class simplenic_t : public bridge_driver_t {
 public:
   simplenic_t(simif_t *sim,
               std::vector<std::string> &args,
-              const SIMPLENICBRIDGEMODULE_struct &addrs,
+              SIMPLENICBRIDGEMODULE_struct *addrs,
               int simplenicno,
               const int stream_to_cpu_idx,
               const int stream_to_cpu_depth,
@@ -40,7 +41,7 @@ public:
   virtual void finish(){};
 
 private:
-  const SIMPLENICBRIDGEMODULE_struct mmio_addrs;
+  simif_t *sim;
   uint64_t mac_lendian;
   char *pcis_read_bufs[2];
   char *pcis_write_bufs[2];
@@ -53,14 +54,24 @@ private:
   // IMPORTANT: this must be a multiple of 7
   int LINKLATENCY;
   FILE *niclog;
+  SIMPLENICBRIDGEMODULE_struct *mmio_addrs;
   bool loopback;
 
   // checking for token loss
+  uint32_t next_token_from_fpga = 0x0;
+  uint32_t next_token_from_socket = 0x0;
+
+  uint64_t iter = 0;
+
   int currentround = 0;
 
   // only for TOKENVERIFY
+  uint64_t timeelapsed_cycles = 0;
+
   const int stream_to_cpu_idx;
+  const int stream_to_cpu_depth;
   const int stream_from_cpu_idx;
+  const int stream_from_cpu_depth;
 };
 #endif // SIMPLENICBRIDGEMODULE_struct_guard
 
