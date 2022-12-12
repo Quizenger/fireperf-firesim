@@ -1,6 +1,31 @@
+#ifndef __TRACE_TRACKER_H
+#define __TRACE_TRACKER_H
 #include "tracerv_processing.h"
-
 //#define INDENT_SPACES
+
+
+struct token_t
+{
+  // from the bridge
+  uint64_t cycle_count;
+  uint64_t iaddr;
+  uint64_t inst;
+  uint64_t satp;
+  uint8_t priv;
+  // Assign the 
+  ObjdumpedBinary* bin;
+  // post-matching instr_meta indicates the info about instruction
+  Instr* instr_meta;
+  // page base
+  uint64_t page_base;
+};
+
+struct bin_page_pair_t
+{
+  ObjdumpedBinary *bin;
+  uint64_t page_base;
+};
+
 
 class LabelMeta {
 public:
@@ -49,12 +74,12 @@ public:
 
 class TraceTracker {
 private:
-  ObjdumpedBinary *bin_dump;
   std::vector<LabelMeta *> label_stack;
   FILE *tracefile;
   Instr *last_instr;
-
 public:
-  TraceTracker(std::string binary_with_dwarf, FILE *tracefile);
-  void addInstruction(uint64_t inst_addr, uint64_t cycle);
+  TraceTracker(FILE *tracefile);
+  void addInstruction(struct token_t token);
 };
+
+#endif // ifndef __TRACE_TRACKER_H

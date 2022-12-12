@@ -1,9 +1,12 @@
-#ifndef TRACERV_PROCESSING_GUARD
-#define TRACERV_PROCESSING_GUARD
+#ifndef __TRACERV_PROCESSING
+#define __TRACERV_PROCESSING
 
 #include <inttypes.h>
 #include <string>
 #include <vector>
+
+#include "tracerv_dwarf.h"
+#include "tracerv_elf.h"
 
 #include <fstream>
 #include <iostream>
@@ -30,17 +33,19 @@ public:
     printf("%s, %" PRIx64 ", %s\n", label.c_str(), addr, instval.c_str());
   }
 
-  void printMeFile(FILE *printfile, std::string prefix) {}
+  void printMeFile(FILE *printfile) {
+    fprintf(printfile, "%s, %" PRIx64 ", %s, %s\n", function_name.c_str(), addr, is_callsite ? "true" : "false", is_fn_entry ? "true" : "false");
+  }
 };
 
 class ObjdumpedBinary {
   // base address subtracted before lookup into array
-  uint64_t baseaddr;
-  std::vector<Instr *> progtext;
-
 public:
+  uint64_t baseaddr;
+  std::string bin_name;
+  std::vector<Instr *> progtext;
   ObjdumpedBinary(std::string binaryWithDwarf);
   Instr *getInstrFromAddr(uint64_t lookupaddress);
 };
 
-#endif
+#endif //ifndef __TRACERV_PROCESSING

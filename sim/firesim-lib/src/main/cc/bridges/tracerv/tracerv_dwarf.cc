@@ -197,6 +197,7 @@ dwarf_t::str_ptr dwarf_t::die_name(Dwarf_Die die) {
 }
 
 void subroutine_t::print(uint64_t pc_low) const {
+#ifdef DO_PRINT
   const char *label = this->name.c_str();
   if (this->pc_end) {
     printf("%08" PRIx64 " %08" PRIx64 " <%s>\n", pc_low, this->pc_end, label);
@@ -210,6 +211,7 @@ void subroutine_t::print(uint64_t pc_low) const {
       printf("\t%08" PRIx64 " <%s>\n", site.pc, site.name.c_str());
     }
   }
+#endif
 }
 
 const subroutine_t *subroutine_find(const subroutine_map &table, uint64_t pc) {

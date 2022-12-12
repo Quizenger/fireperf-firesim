@@ -1,17 +1,32 @@
+
+#include <filesystem>
+#include <regex>
 #include "trace_tracker.h"
+
 
 //#define TRACETRACKER_LOG_PC_REGION
 
-TraceTracker::TraceTracker(std::string binary_with_dwarf, FILE *tracefile) {
-  this->bin_dump = new ObjdumpedBinary(binary_with_dwarf);
+
+
+TraceTracker::TraceTracker(FILE *tracefile) {
+  // TODO: support hypervisor
   this->tracefile = tracefile;
 }
 
-void TraceTracker::addInstruction(uint64_t inst_addr, uint64_t cycle) {
-  Instr *this_instr = this->bin_dump->getInstrFromAddr(inst_addr);
+void TraceTracker::addInstruction(struct token_t token) {
+  // populate tokens into the retired buffer
+  uint64_t cycle = token.cycle_count;
+  uint64_t inst_addr = token.iaddr;
+  Instr *this_instr = token.instr_meta;
 
-#ifdef TRACETRACKER_LOG_PC_REGION
+#ifdef TRACETRACKER_LOG_PC_REGION /* What does this do??? */ // SKIPPED FOR NOW, BUT CHANGE IF NEEDED
   if (!this_instr) {
+    /* 
+      CURR BEHAVIOR:
+        When we don't find instr - just mark as userspace.
+      DESIRED BEHAVIOR:
+        When we don't find instr - we can at least map which mode it came from.
+    */
     fprintf(
         this->tracefile, "addr:%" PRIx64 ", fn:%s\n", inst_addr, "USERSPACE");
   } else {
@@ -22,8 +37,7 @@ void TraceTracker::addInstruction(uint64_t inst_addr, uint64_t cycle) {
   }
   return;
 #endif
-
-  if (!this_instr) {
+if (!this_instr) {
     if ((label_stack.size() == 1) &&
         (std::string("USERSPACE_ALL")
              .compare(label_stack[label_stack.size() - 1]->label) == 0)) {
@@ -114,7 +128,7 @@ void TraceTracker::addInstruction(uint64_t inst_addr, uint64_t cycle) {
                   "WARN: Unwind started at level: dec %" PRIu64 "\n",
                   unwind_start_level);
           fprintf(this->tracefile, "WARN: Last instr was\n");
-          this->last_instr->printMeFile(this->tracefile, std::string("WARN: "));
+          //this->last_instr->printMeFile(this->tracefile);
         }
       } else {
         LabelMeta *new_label = new LabelMeta();
@@ -129,7 +143,7 @@ void TraceTracker::addInstruction(uint64_t inst_addr, uint64_t cycle) {
     }
     this->last_instr = this_instr;
   }
-}
+} 
 
 #ifdef TRACERV_TOP_MAIN
 int main() {
