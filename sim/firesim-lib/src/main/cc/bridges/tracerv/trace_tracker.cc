@@ -1,12 +1,8 @@
-
 #include <filesystem>
 #include <regex>
 #include "trace_tracker.h"
 
-
 //#define TRACETRACKER_LOG_PC_REGION
-
-
 
 TraceTracker::TraceTracker(FILE *tracefile) {
   // TODO: support hypervisor
@@ -37,7 +33,8 @@ void TraceTracker::addInstruction(struct token_t token) {
   }
   return;
 #endif
-if (!this_instr) {
+
+	if (!this_instr) {
     if ((label_stack.size() == 1) &&
         (std::string("USERSPACE_ALL")
              .compare(label_stack[label_stack.size() - 1]->label) == 0)) {
@@ -140,7 +137,7 @@ if (!this_instr) {
         label_stack.push_back(new_label);
         new_label->pre_print(this->tracefile);
       }
-    }
+		}
     this->last_instr = this_instr;
   }
 } 
