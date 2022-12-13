@@ -40,7 +40,7 @@ const size_t BUFF_SIZE = 800;
   --------/hex   (file)
 */
 
-tracerv_t(simif_t *sim,
+tracerv_t::tracerv_t(simif_t *sim,
           std::vector<std::string> &args,
           TRACERVBRIDGEMODULE_struct *mmio_addrs,
           const int stream_idx,
@@ -50,7 +50,7 @@ tracerv_t(simif_t *sim,
           const unsigned int clock_multiplier,
           const unsigned int clock_divisor,
           int tracerno, 
-          int matching_depth = 3, uint8_t userspace = 1)
+          int matching_depth /*= 3*/, uint8_t userspace /*= 1*/)
   : bridge_driver_t(sim), mmio_addrs(mmio_addrs), stream_idx(stream_idx),
 stream_depth(stream_depth), max_core_ipc(max_core_ipc),
 clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
@@ -59,6 +59,7 @@ clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
                 "TracerV only supports cores with a maximum IPC <= 7");
   const char *tracefilename = "TRACEFILE";
   const char *dwarf_dir_name = "top";
+  const char *dwarf_file_name = NULL;
 
   this->buffer_flush_mode = true; // to flush the retired buffer
   this->trace_trigger_start = 0;
@@ -199,7 +200,7 @@ clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
     this->trace_enabled = false;
   }
 
-  if (fireperf) {
+  if (this->fireperf) {
     if (this->dwarf_file_name.compare("") == 0) {
       fprintf(stderr, "+fireperf specified but no +dwarf-file-name given\n");
       abort();
@@ -502,6 +503,12 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
   }
   return 0;
   */
+}
+
+void tracerv_t::tick() {
+  if (this->trace_enabled) {
+    process_tokens(this->stream_depth, this->stream_depth);
+  }
 }
 
 
