@@ -1,5 +1,5 @@
 // See LICENSE for license details
-//#ifdef TRACERVBRIDGEMODULE_struct_guard
+#ifdef TRACERVBRIDGEMODULE_struct_guard
 
 #include "tracerv.h"
 #include <inttypes.h>
@@ -12,7 +12,7 @@
 #include <sys/types.h>
 #include <sys/sendfile.h>
 #include <stdlib.h>
-
+#include <unistd.h>
 
 #include <sys/mman.h>
 
@@ -40,8 +40,23 @@ const size_t BUFF_SIZE = 800;
   --------/hex   (file)
 */
 
-tracerv_t::tracerv_t(int tracerno, int matching_depth) {
+tracerv_t(simif_t *sim,
+          std::vector<std::string> &args,
+          TRACERVBRIDGEMODULE_struct *mmio_addrs,
+          const int stream_idx,
+          const int stream_depth,
+          const unsigned int max_core_ipc,
+          const char *const clock_domain_name,
+          const unsigned int clock_multiplier,
+          const unsigned int clock_divisor,
+          int tracerno, 
+          int matching_depth = 3, uint8_t userspace = 1)
+  : bridge_driver_t(sim), mmio_addrs(mmio_addrs), stream_idx(stream_idx),
+stream_depth(stream_depth), max_core_ipc(max_core_ipc),
+clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
   // Biancolin: move into elaboration
+  assert(this->max_core_ipc <= 7 &&
+                "TracerV only supports cores with a maximum IPC <= 7");
   const char *tracefilename = "TRACEFILE";
   const char *dwarf_dir_name = "top";
 
@@ -49,9 +64,13 @@ tracerv_t::tracerv_t(int tracerno, int matching_depth) {
   this->trace_trigger_start = 0;
   this->trace_trigger_end = ULONG_MAX;
   this->trigger_selector = 0;
+
   this->tracefilename = "TRACEFILE";
   this->dwarf_dir_name = "top";
+  this->dwarf_file_name = "";
+
   this->MATCHING_DEPTH = matching_depth;
+  this->userspace = userspace;
 
   long outputfmtselect = 2;
 
@@ -69,6 +88,53 @@ tracerv_t::tracerv_t(int tracerno, int matching_depth) {
       std::string("+trace-output-format") + suffix;
   std::string dwarf_file_arg = std::string("+dwarf-file-name") + suffix;
 
+  for (auto &arg : args) {
+    /* 
+     *  Commenting our for fireperf userspace integration
+     *  if (arg.find(tracefile_arg) == 0) {
+     *    tracefilename = const_cast<char *>(arg.c_str()) + tracefile_arg.length();
+     *    this->tracefilename = std::string(tracefilename);
+     *  }
+     */
+    if (arg.find(traceselect_arg) == 0) {
+      char *str = const_cast<char *>(arg.c_str()) + traceselect_arg.length();
+      this->trigger_selector = atol(str);
+    }
+    // These next two arguments are overloaded to provide trigger start and
+    // stop condition information based on setting of the +trace-select
+    if (arg.find(tracestart_arg) == 0) {
+      // Start and end cycles are given in decimal
+      char *str = const_cast<char *>(arg.c_str()) + tracestart_arg.length();
+      this->trace_trigger_start = this->clock_info.to_local_cycles(atol(str));  
+      // PCs values, and instruction and mask encodings are given in hex
+      uint64_t mask_and_insn = strtoul(str, NULL, 16);
+      this->trigger_start_insn = (uint32_t)mask_and_insn;
+      this->trigger_start_insn_mask = mask_and_insn >> 32;
+      this->trigger_start_pc = mask_and_insn;
+    }
+    if (arg.find(traceend_arg) == 0) {
+      char *str = const_cast<char *>(arg.c_str()) + traceend_arg.length();
+      this->trace_trigger_end = this->clock_info.to_local_cycles(atol(str));
+
+      uint64_t mask_and_insn = strtoul(str, NULL, 16);
+      this->trigger_stop_insn = (uint32_t)mask_and_insn;
+      this->trigger_stop_insn_mask = mask_and_insn >> 32;
+      this->trigger_stop_pc = mask_and_insn;
+    }
+    if (arg.find(testoutput_arg) == 0) {
+      this->test_output = true;
+    }
+    if (arg.find(trace_output_format_arg) == 0) {
+      char *str =
+        const_cast<char *>(arg.c_str()) + trace_output_format_arg.length();
+      outputfmtselect = atol(str);
+    }
+    if (arg.find(dwarf_file_arg) == 0) {
+      dwarf_file_name =
+        const_cast<char *>(arg.c_str()) + dwarf_file_arg.length();
+      this->dwarf_file_name = std::string(dwarf_file_name);
+    }
+  } 
 
   if (tracefilename) {
     // final tracefile is created here and populated in the destructor by concatenating 
@@ -134,8 +200,12 @@ tracerv_t::tracerv_t(int tracerno, int matching_depth) {
   }
 
   if (fireperf) {
-    if (this->dwarf_dir_name.compare("") == 0) {
+    if (this->dwarf_file_name.compare("") == 0) {
       fprintf(stderr, "+fireperf specified but no +dwarf-file-name given\n");
+      abort();
+    }
+    if (this->dwarf_dir_name.compare("") == 0) {
+      fprintf(stderr, "+fireperf specified but no +dwarf-dir-name given\n");
       abort();
     }
     this->trace_trackers["kernel"] = new TraceTracker(this->tracefiles["kernel"]);
@@ -217,19 +287,18 @@ tracerv_t::~tracerv_t() {
     }
   }
   fclose(final);
-  //free(this->mmio_addrs);
+  free(this->mmio_addrs);
 }
 
 void tracerv_t::init() {
   if (!this->trace_enabled) {
     // Explicitly disable token collection in the bridge if no tracefile was
     // provided to improve FMR
-    //write(this->mmio_addrs->traceEnable, 0);
+    write(this->mmio_addrs->traceEnable, 0);
   }
 
   // Configure the trigger even if tracing is disabled, as other
   // instrumentation, like autocounter, may use tracerv-hosted trigger sources.
-  /*
   if (this->trigger_selector == 1) {
     write(this->mmio_addrs->triggerSelector, this->trigger_selector);
     write(this->mmio_addrs->hostTriggerCycleCountStartHigh,
@@ -278,11 +347,9 @@ void tracerv_t::init() {
            ULONG_MAX);
   }
   write(this->mmio_addrs->initDone, true);
-  */
 }
 
 size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
-  /*
   size_t maximum_batch_bytes = num_beats * BridgeConstants::STREAM_WIDTH_BYTES;
   size_t minimum_batch_bytes =
       minimum_batch_beats * BridgeConstants::STREAM_WIDTH_BYTES;
@@ -310,41 +377,74 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
           fprintf(this->tracefile, "%016lx\n", OUTBUF[i + 0]);
           // At least one valid instruction
         } else {
-          for (int q = 0; q < max_core_ipc; q++) {
-            if (OUTBUF[i + q + 1] & valid_mask) {
+          if (this->userspace) {
+            if (OUTBUF[i + 1] & valid_mask) {
               fprintf(this->tracefile,
-                      "Cycle: %016" PRId64 " I%d: %016" PRIx64 "\n",
-                      OUTBUF[i + 0],
-                      q,
-                      OUTBUF[i + q + 1] & (~valid_mask));
-            } else {
-              break;
+                  "Cycle: %016" PRId64 " I%d: %016" PRIx64 " Inst: %016" PRIx64 " satp: %016" PRIx64 " priv: %016" PRIx64 "\n",
+                  OUTBUF[i + 0],
+                  0,
+                  (uint64_t)((((int64_t)(OUTBUF[i + 1])) << 24) >> 24),
+                  OUTBUF[i + 2],
+                  OUTBUF[i + 3],
+                  OUTBUF[i + 4]);
+            }
+          } else {
+            for (int q = 0; q < max_core_ipc; q++) {
+              if (OUTBUF[i + q + 1] & valid_mask) {
+                fprintf(this->tracefile,
+                    "Cycle: %016" PRId64 " I%d: %016" PRIx64 "\n",
+                    OUTBUF[i + 0],
+                    q,
+                    OUTBUF[i + q + 1] & (~valid_mask));
+              } else {
+                break;
+              }
             }
           }
         }
       }
     } else if (this->fireperf) {
 
-      for (int i = 0; i < (bytes_received / sizeof(uint64_t)); i += 8) {
-        uint64_t cycle_internal = OUTBUF[i + 0];
-
-        for (int q = 0; q < max_core_ipc; q++) {
-          if (OUTBUF[i + 1 + q] & valid_mask) {
+      if (this->userspace) {
+        for (int i = 0; i < (bytes_received / sizeof(uint64_t)); i += 8) {
+          uint64_t cycle_internal = OUTBUF[i + 0];
+        
+          if (OUTBUF[i + 1] & valid_mask) {
             uint64_t iaddr =
-                (uint64_t)((((int64_t)(OUTBUF[i + 1 + q])) << 24) >> 24);
+              (uint64_t)((((int64_t)(OUTBUF[i + 1])) << 24) >> 24);
             struct token_t token;
             token.cycle_count = cycle_internal;
             token.iaddr = iaddr;
-            token.inst = 0; //TODO
-            // TODO: push the data into the token struct
-            // TODO: RAGHAV PLEASE DO THIS ONE
+            token.inst = OUTBUF[i + 2];
+            token.satp = OUTBUF[i + 3];
+            token.priv = OUTBUF[i + 4];
             tracerv_t::matchAddInstruction(token, false);
 #ifdef FIREPERF_LOGGER
             fprintf(this->tracefile, "%016llx", iaddr);
             fprintf(this->tracefile, "%016llx\n", cycle_internal);
 #endif // FIREPERF_LOGGER
           }
-        }
+        } 
+      } else {
+        for (int i = 0; i < (bytes_received / sizeof(uint64_t)); i += 8) {
+          uint64_t cycle_internal = OUTBUF[i + 0];
+
+          for (int q = 0; q < max_core_ipc; q++) {
+            if (OUTBUF[i + 1 + q] & valid_mask) {
+              uint64_t iaddr =
+                (uint64_t)((((int64_t)(OUTBUF[i + 1 + q])) << 24) >> 24);
+              struct token_t token;
+              token.cycle_count = cycle_internal;
+              token.iaddr = iaddr;
+              token.inst = 0;
+              tracerv_t::matchAddInstruction(token, false);
+#ifdef FIREPERF_LOGGER
+              fprintf(this->tracefile, "%016llx", iaddr);
+              fprintf(this->tracefile, "%016llx\n", cycle_internal);
+#endif // FIREPERF_LOGGER
+            }
+          }
+        } 
       }
     } else {
       for (int i = 0; i < (bytes_received / sizeof(uint64_t)); i += 8) {
@@ -358,7 +458,7 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
     }
   }
   return bytes_received;
-  */
+  /*
   char *buf = (char *) malloc(sizeof(char) * BUFF_SIZE);
   if (!buf) {
     exit(1);
@@ -378,11 +478,11 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
           t.cycle_count = data;
           break;
         case 3: 
-          /*
-          if (data >= 0x0000008000000000) {
-            data = data + 0xffffff0000000000;
-          }
-          */
+          //
+          //if (data >= 0x0000008000000000) {
+            //data = data + 0xffffff0000000000;
+          //}
+          //
           t.iaddr = data;
           break;
         case 5: 
@@ -401,14 +501,14 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
     tracerv_t::matchAddInstruction(t, false);
   }
   return 0;
-
+  */
 }
 
 
 // Pull in any remaining tokens and flush them to file
 void tracerv_t::flush() {
-  //while (this->trace_enabled && (process_tokens(this->stream_depth, 0) > 0))
-    //;
+  while (this->trace_enabled && (process_tokens(this->stream_depth, 0) > 0))
+    ;
   while (this->retired_buffer.size() > 0) {
     struct token_t t;
     matchAddInstruction(t, true);
@@ -571,4 +671,4 @@ bool tracerv_t::filterBuffer(struct token_t* token, uint64_t satp) {
    return false;
   return true; 
 }
-//#endif // TRACERVBRIDGEMODULE_struct_guard
+#endif // TRACERVBRIDGEMODULE_struct_guard

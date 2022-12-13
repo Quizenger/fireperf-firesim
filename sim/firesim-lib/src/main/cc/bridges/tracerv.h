@@ -34,17 +34,18 @@ class tracerv_t : public bridge_driver_t
 {
 public:
 
-	// Add matching depth as arg	
-	tracerv_t(simif_t *sim,
-			std::vector<std::string> &args,
-			TRACERVBRIDGEMODULE_struct *mmio_addrs,
-			const int stream_idx,
-			const int stream_depth,
-			const unsigned int max_core_ipc,
-			const char *const clock_domain_name,
-			const unsigned int clock_multiplier,
-			const unsigned int clock_divisor,
-			int tracerno);
+  // Add matching depth as arg	
+  tracerv_t(simif_t *sim,
+          std::vector<std::string> &args,
+          TRACERVBRIDGEMODULE_struct *mmio_addrs,
+          const int stream_idx,
+          const int stream_depth,
+          const unsigned int max_core_ipc,
+          const char *const clock_domain_name,
+          const unsigned int clock_multiplier,
+          const unsigned int clock_divisor,
+          int tracerno, 
+          int matching_depth = 3, uint8_t userspace = 1);
 
   ~tracerv_t();
 
@@ -67,7 +68,8 @@ private:
 	bool buffer_flush_mode;
   // matching specific data structures
   const uint32_t BUFFER_SIZE = 2048;
-  uint8_t MATCHING_DEPTH = 3;
+  uint8_t MATCHING_DEPTH;
+  uint8_t userspace;
   std::deque<struct token_t> retired_buffer;
   ObjdumpedBinary* kernel_objdump; 
   std::map<uint64_t, std::map<uint64_t, struct bin_page_pair_t>> satp_page_cache;
@@ -104,6 +106,7 @@ private:
   long dma_addr;
   std::string tracefilename;
   std::string dwarf_dir_name;
+  std::string dwarf_file_name;
   bool fireperf = false;
 
   bool matchInstruction(struct token_t &token);
