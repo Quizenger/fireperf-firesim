@@ -243,12 +243,16 @@ clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
     // parse through the hexdumped file for each instructions and addresses and push them into the map
     while (getline(&buf, (size_t *) &BUFF_SIZE, f) != -1) {
       char *ptr = strtok(buf, " ");
+      if (NULL == ptr)
+        continue;
       uint64_t addr = strtoull(ptr, NULL, 16);
       uint64_t instr;
       ptr = strtok(NULL, " ");
+      if (NULL == ptr)
+        continue;
       instr = strtoull(ptr, NULL, 16);
       // 4096 for 4k pages, right shift by 2 to get rid of byte offset
-      int offset_index = ((addr % BYTES_PER_PAGE) >> 1);
+      uint64_t offset_index = ((addr % BYTES_PER_PAGE) >> 1);
       struct bin_page_pair_t pair;
       pair.bin = dumped;
       // upper bits are the page address bits 
