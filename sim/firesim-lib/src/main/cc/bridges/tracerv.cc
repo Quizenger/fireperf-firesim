@@ -24,7 +24,7 @@ constexpr uint64_t valid_mask = (1ULL << 40);
 constexpr uint64_t BYTES_PER_PAGE = 4096;
 constexpr uint64_t INSTRUCTION_PER_PAGE = 2048;
 constexpr uint64_t DRAM_ROOT = 0x80000000;
-const size_t BUFF_SIZE = 300;
+size_t BUFF_SIZE = 300;
 
 /*
   tracerv_t file structure assumption:
@@ -221,14 +221,21 @@ clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
 
   // Initilize the vector of maps of offset_inst_to_page 
   for (int i = 0; i < INSTRUCTION_PER_PAGE; i++) {
-    std::map<uint64_t, std::vector<struct bin_page_pair_t>>* m = new std::map<uint64_t, std::vector<struct bin_page_pair_t>>;
-    this->offset_inst_to_page.push_back(*m);
+    std::map<uint64_t, std::vector<struct bin_page_pair_t>> m; 
+    // std::map<uint64_t, std::vector<struct bin_page_pair_t>>* m = new std::map<uint64_t, std::vector<struct bin_page_pair_t>>;
+    this->offset_inst_to_page.push_back(m);
   }
 
   // Map objdumpedbinary object of kernel dwarf
   this->kernel_objdump = new ObjdumpedBinary(this->dwarf_dir_name + std::string("/kernel/dwarf"));
   
   char *buf = (char*) malloc(sizeof(char) * BUFF_SIZE);
+  char *buf_free = buf;
+  char *buf_cpy = buf;
+  if (NULL == buf) {
+    perror("read buf malloc failed.");
+    return;
+  }
   FILE *f;
   for (auto &user_program : std::filesystem::directory_iterator(this->dwarf_dir_name + std::string("/user"))) {
     std::string user_program_path = std::filesystem::path(user_program).string();
@@ -241,7 +248,8 @@ clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
       return;
     }
     // parse through the hexdumped file for each instructions and addresses and push them into the map
-    while (getline(&buf, (size_t *) &BUFF_SIZE, f) != -1) {
+    while (getline(&buf_cpy, (size_t *) &BUFF_SIZE, f) != -1) {
+      buf = buf_cpy;
       char *ptr = strtok(buf, " ");
       if (NULL == ptr)
         continue;
@@ -273,7 +281,7 @@ clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
 
       //this->offset_inst_to_page.at(offset_index)[instr].push_back(pair);
     }
-    free(buf);
+    free(buf_free);
   }
 }
 
