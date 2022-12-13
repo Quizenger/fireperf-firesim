@@ -281,8 +281,8 @@ clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
 
       //this->offset_inst_to_page.at(offset_index)[instr].push_back(pair);
     }
-    free(buf_free);
   }
+  free(buf_free);
 }
 
 void tracerv_t::copyFile(FILE* to, FILE* from) {
