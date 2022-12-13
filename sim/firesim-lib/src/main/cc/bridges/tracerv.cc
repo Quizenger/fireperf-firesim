@@ -24,7 +24,7 @@ constexpr uint64_t valid_mask = (1ULL << 40);
 constexpr uint64_t BYTES_PER_PAGE = 4096;
 constexpr uint64_t INSTRUCTION_PER_PAGE = 2048;
 constexpr uint64_t DRAM_ROOT = 0x80000000;
-const size_t BUFF_SIZE = 800;
+const size_t BUFF_SIZE = 300;
 
 /*
   tracerv_t file structure assumption:
@@ -221,8 +221,8 @@ clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
 
   // Initilize the vector of maps of offset_inst_to_page 
   for (int i = 0; i < INSTRUCTION_PER_PAGE; i++) {
-    std::map<uint64_t, std::vector<struct bin_page_pair_t>> m;
-    this->offset_inst_to_page.push_back(m);
+    std::map<uint64_t, std::vector<struct bin_page_pair_t>>* m = new std::map<uint64_t, std::vector<struct bin_page_pair_t>>;
+    this->offset_inst_to_page.push_back(*m);
   }
 
   // Map objdumpedbinary object of kernel dwarf
@@ -257,7 +257,21 @@ clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
       pair.bin = dumped;
       // upper bits are the page address bits 
       pair.page_base = (addr >> 12) << 12;
-      this->offset_inst_to_page.at(offset_index)[instr].push_back(pair);
+      
+      try {
+        auto inst_to_page = this->offset_inst_to_page.at(offset_index);
+        auto bin_page_pair_vec = inst_to_page[instr];
+        bin_page_pair_vec.push_back(pair);
+      }
+      catch (const std::out_of_range& oor) {
+        std::cerr << "Out of Range error (inst_to_page): " << oor.what() << '\n';
+      }
+      catch (std::bad_alloc& ba)
+      {
+        std::cerr << "bad_alloc caught (bin_page_vec): " << ba.what() << '\n';
+      }
+
+      //this->offset_inst_to_page.at(offset_index)[instr].push_back(pair);
     }
     free(buf);
   }
