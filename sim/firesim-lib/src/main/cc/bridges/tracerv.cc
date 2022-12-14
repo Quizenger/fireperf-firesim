@@ -18,13 +18,14 @@
 
 // put FIREPERF in a mode that writes a simple log for processing later.
 // useful for iterating on software side only without re-running on FPGA.
-//#define FIREPERF_LOGGER
+// #define FIREPERF_LOGGER
 
 constexpr uint64_t valid_mask = (1ULL << 40);
 constexpr uint64_t BYTES_PER_PAGE = 4096;
 constexpr uint64_t INSTRUCTION_PER_PAGE = 2048;
 constexpr uint64_t DRAM_ROOT = 0x80000000;
 size_t BUFF_SIZE = 300;
+FILE* fireperf_logger;
 
 /*
   tracerv_t file structure assumption:
@@ -61,7 +62,9 @@ clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
   const char *dwarf_dir_name = "top";
   const char *dwarf_file_name = NULL;
 
-  this->buffer_flush_mode = true; // to flush the retired buffer
+  fireperf_logger = fopen("fireperf_logger", "w");
+
+  // this->buffer_flush_mode = true; // to flush the retired buffer
   this->trace_trigger_start = 0;
   this->trace_trigger_end = ULONG_MAX;
   this->trigger_selector = 0;
@@ -237,10 +240,15 @@ clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
     return;
   }
   FILE *f;
+
+  std::cerr << "just testing " << std::endl;
+
+
   for (auto &user_program : std::filesystem::directory_iterator(this->dwarf_dir_name + std::string("/user"))) {
     std::string user_program_path = std::filesystem::path(user_program).string();
     // create object dumped binary object per binary dwarf file
     ObjdumpedBinary *dumped = new ObjdumpedBinary(user_program_path + std::string("/dwarf"));
+    fprintf(stderr, "\n%s\n", dumped->bin_name.c_str());
     // read the corresponding hexdumped file to map instructions to binary and base addresses pairs
     f = fopen((user_program_path + std::string("/hex")).c_str(), "r");
     if (!f) {
@@ -254,11 +262,19 @@ clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
       if (NULL == ptr)
         continue;
       uint64_t addr = strtoull(ptr, NULL, 16);
+      
+      if (addr == 0x1048e) 
+        fprintf(stderr, "seen addr 1048e in hex");
+      
       uint64_t instr;
       ptr = strtok(NULL, " ");
       if (NULL == ptr)
         continue;
       instr = strtoull(ptr, NULL, 16);
+      
+      if (addr == 0x1048e) 
+        fprintf(stderr, "seen addr 1048e in hex with instr: %x", instr);
+      
       // 4096 for 4k pages, right shift by 2 to get rid of byte offset
       uint64_t offset_index = ((addr % BYTES_PER_PAGE) >> 1);
       struct bin_page_pair_t pair;
@@ -267,10 +283,15 @@ clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
       pair.page_base = (addr >> 12) << 12;
       
       try {
-        auto inst_to_page = this->offset_inst_to_page.at(offset_index);
-        auto bin_page_pair_vec = inst_to_page[instr];
-        bin_page_pair_vec.push_back(pair);
+        this->offset_inst_to_page.at(offset_index)[instr].push_back(pair);
+        //auto inst_to_page = this->offset_inst_to_page.at(offset_index);
+        //auto bin_page_pair_vec = inst_to_page[instr];
+        //bin_page_pair_vec.push_back(pair);
       }
+      catch (const std::exception& e) {
+        std::cerr << "Exception in hex stuff: " << e.what() << std::endl;
+      }
+      /*
       catch (const std::out_of_range& oor) {
         std::cerr << "Out of Range error (inst_to_page): " << oor.what() << '\n';
       }
@@ -278,9 +299,17 @@ clock_info(clock_domain_name, clock_multiplier, clock_divisor) {
       {
         std::cerr << "bad_alloc caught (bin_page_vec): " << ba.what() << '\n';
       }
+      */
 
       //this->offset_inst_to_page.at(offset_index)[instr].push_back(pair);
     }
+  }
+  std::vector<struct bin_page_pair_t> possible_sites = this->offset_inst_to_page.at((0x1048e % BYTES_PER_PAGE) >> 1)[0x0f67ff0ef];
+  std::cerr << "bin page mapping comin' up" << std::endl;
+  std::cerr << "size = " << possible_sites.size() << std::endl;
+  
+  for (auto const &s : possible_sites) {
+    std::cerr << "bin: " << s.bin->bin_name << " page: " << s.page_base << std::endl;
   }
   free(buf_free);
 }
@@ -314,7 +343,7 @@ tracerv_t::~tracerv_t() {
     }
   }
   fclose(final);
-  free(this->mmio_addrs);
+  // free(this->mmio_addrs);
 }
 
 void tracerv_t::init() {
@@ -447,8 +476,16 @@ size_t tracerv_t::process_tokens(int num_beats, int minimum_batch_beats) {
             token.priv = OUTBUF[i + 4];
             tracerv_t::matchAddInstruction(token, false);
 #ifdef FIREPERF_LOGGER
-            fprintf(this->tracefile, "%016llx", iaddr);
-            fprintf(this->tracefile, "%016llx\n", cycle_internal);
+            // fprintf(this->tracefile, "%016llx", iaddr);
+            // fprintf(this->tracefile, "%016llx\n", cycle_internal);
+            fprintf(fireperf_logger,
+                "Cycle: %016" PRId64 " I%d: %016" PRIx64 " Inst: %016" PRIx64 " satp: %016" PRIx64 " priv: %016" PRIx64 "\n",
+                OUTBUF[i + 0],
+                0,
+                (uint64_t)((((int64_t)(OUTBUF[i + 1])) << 24) >> 24),
+                OUTBUF[i + 2],
+                OUTBUF[i + 3],
+                OUTBUF[i + 4]);
 #endif // FIREPERF_LOGGER
           }
         } 
@@ -549,15 +586,25 @@ void tracerv_t::flush() {
 }
 
 void tracerv_t::matchAddInstruction(struct token_t token, bool flush) {
-  if (!flush)
+  if (!flush) {
     this->retired_buffer.push_back(token);
-  if ((this->retired_buffer.size() < BUFFER_SIZE) or !this->buffer_flush_mode) { // TODO
-    return;
+    if (this->retired_buffer.size() < BUFFER_SIZE) { // TODO
+      return;
+    }
   }
   struct token_t cur_token = this->retired_buffer.front();
   this->retired_buffer.pop_front();
+  
+  if (cur_token.iaddr == 0x1048e && cur_token.inst == 0x00000000f67ff0ef)
+      fprintf(stderr, "Inside matchAddInstr I0: %016" PRIx64 " Inst: %016" PRIx64 "\n", cur_token.iaddr, cur_token.inst);
+  
   if (tracerv_t::matchInstruction(cur_token)) {
+  
+    if (cur_token.iaddr == 0x1048e && cur_token.inst == 0x00000000f67ff0ef)
+      fprintf(stderr, "Inside matchAddInstr post-matching I0: %016" PRIx64 " Inst: %016" PRIx64 "\n", cur_token.iaddr, cur_token.inst);
+    
     this->trace_trackers[cur_token.bin->bin_name]->addInstruction(cur_token);
+  
   } else {
     this->trace_trackers["misc"]->addInstruction(cur_token);
   }
@@ -575,6 +622,10 @@ void tracerv_t::matchAddInstruction(struct token_t token, bool flush) {
    + add cache entry to user_ppn_bin_cache 
 */
 bool tracerv_t::matchInstruction(struct token_t &token) {
+   
+  if (token.iaddr == 0x1048e && token.inst == 0x00000000f67ff0ef)
+      fprintf(stderr, "Inside matchInstr I0: %016" PRIx64 " Inst: %016" PRIx64 "\n", token.iaddr, token.inst);
+  
   if (token.iaddr >= this->kernel_objdump->baseaddr && 
                 (token.iaddr - this->kernel_objdump->baseaddr) < this->kernel_objdump->progtext.size()) {
     /* Kernel */
@@ -618,6 +669,9 @@ bool tracerv_t::matchInstruction(struct token_t &token) {
     /* regular matching if not found in cache or found some conflicting entries  and */
     if (possible_sites.size() == 0) {
       /* failed to find any matching binary, USERSPACE ALL */
+      if (token.iaddr == 0x1048e && token.inst == 0x00000000f67ff0ef)
+        fprintf(stderr, "No possible sites found");  
+      
       return false;
     } 
     /*
@@ -657,6 +711,8 @@ bool tracerv_t::matchInstruction(struct token_t &token) {
       }
       // check the number of matches sites; check if matched_sites binaries are the same in case there are more than 1
       if (matched_sites.size() == 0)  {
+        if (token.iaddr == 0x1048e && token.inst == 0x00000000f67ff0ef)
+          fprintf(stderr, "matched sites ended up as 0");  
         // failed to find any matching
         return false;
       } else if (matched_sites.size() == 1) {
@@ -667,13 +723,27 @@ bool tracerv_t::matchInstruction(struct token_t &token) {
         }
         token.page_base = matched_sites.at(0).page_base;
         // back propogation logic
-        for (auto &t : matching_vec) {
+        for (auto &t : this->retired_buffer) {
+          if (t.satp == token.satp && t.priv == 0) {
+            uint64_t potential_page_base = ((t.iaddr >> 12) << 12) + token.page_base - ((token.iaddr >> 12) << 12);
+            uint64_t index = (t.iaddr % BYTES_PER_PAGE) + potential_page_base - token.bin->baseaddr; 
+            if (index < token.bin->progtext.size()) {
+              t.instr_meta = token.bin->progtext[index];
+              t.bin = token.bin;
+              t.page_base = potential_page_base;
+            } 
+          }
+          /*
           t->bin = token.bin;
           t->page_base = ((t->iaddr >> 12) << 12) - ((token.iaddr >> 12) << 12) + token.page_base; 
           t->instr_meta = token.bin->progtext[t->iaddr % BYTES_PER_PAGE + t->page_base - token.bin->baseaddr];
+          */
         }
         return true;
       } else {
+        if (token.iaddr == 0x1048e && token.inst == 0x00000000f67ff0ef)
+          fprintf(stderr, "matched sites size = %d", matched_sites.size());  
+        
         for (size_t i = 1; i < matched_sites.size(); i++) {  
           if (matched_sites.at(0).bin != matched_sites.at(i).bin) { // FIXME
             return false;

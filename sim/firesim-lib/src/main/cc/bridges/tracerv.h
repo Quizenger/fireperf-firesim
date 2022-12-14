@@ -65,7 +65,7 @@ private:
 	const int max_core_ipc;
 	ClockInfo clock_info;		
 	
-	bool buffer_flush_mode;
+	//bool buffer_flush_mode;
   // matching specific data structures
   const uint32_t BUFFER_SIZE = 2048;
   uint8_t MATCHING_DEPTH;
