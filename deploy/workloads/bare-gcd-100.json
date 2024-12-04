@@ -1,0 +1,8 @@
+{
+	"benchmark_name": "bare-gcd-100",
+	"common_simulation_outputs": [
+		"uartlog"
+	],
+	"common_bootbinary": "../../../../../software/firemarshal/test/bare-gcd-100/gcd-100-noref.riscv",
+	"common_rootfs": "../../../../../software/firemarshal/boards/default/installers/firesim/dummy.rootfs"
+}
