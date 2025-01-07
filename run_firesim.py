@@ -10,6 +10,7 @@ CONFIG_PATH = "deploy/config_runtime.yaml"
 OUTPUT_DIR = os.path.expanduser("~/FIRESIM_RUNS_DIR/sim_slot_0")
 CSV_OUTPUT = "simulation_results.csv"
 LOG_FILE = "simulation_script.log"
+NUM_ITERS = 3
 
 # Set up logging
 logging.basicConfig(
@@ -21,18 +22,22 @@ logging.basicConfig(
 
 # Configurations to iterate over
 DEFAULT_HW_CONFIGS = [
-    "xilinx_vcu118_firesim_smallboom_gcd_tl_singlecore_4GB_no_nic",
-    "xilinx_vcu118_firesim_smallboom_gcd_tl_bridge_singlecore_4GB_no_nic",
-    "xilinx_vcu118_firesim_smallboom_gcd_tl_singlecore_4GB_no_nic_10",
-    "xilinx_vcu118_firesim_smallboom_gcd_tl_bridge_singlecore_4GB_no_nic_10",
-    "xilinx_vcu118_firesim_smallboom_gcd_tl_singlecore_4GB_no_nic_100",
-    "xilinx_vcu118_firesim_smallboom_gcd_tl_bridge_singlecore_4GB_no_nic_100"
+#    "xilinx_vcu118_firesim_smallboom_gcd_tl_singlecore_4GB_no_nic",
+#    "xilinx_vcu118_firesim_smallboom_gcd_tl_bridge_singlecore_4GB_no_nic",
+#    "xilinx_vcu118_firesim_smallboom_gcd_tl_singlecore_4GB_no_nic_10",
+#    "xilinx_vcu118_firesim_smallboom_gcd_tl_bridge_singlecore_4GB_no_nic_10",
+#    "xilinx_vcu118_firesim_smallboom_gcd_tl_singlecore_4GB_no_nic_100",
+#    "xilinx_vcu118_firesim_smallboom_gcd_tl_bridge_singlecore_4GB_no_nic_100"
+    "xilinx_vcu118_firesim_smallboom_null_prefetcher_singlecore_4GB_no_nic_10",
+    "xilinx_vcu118_firesim_smallboom_null_prefetcher_singlecore_4GB_no_nic_50",
+    "xilinx_vcu118_firesim_smallboom_null_prefetcher_singlecore_4GB_no_nic_100"
 ]
 WORKLOAD_NAMES = [
-    "bare-gcd.json",
-    "bare-gcd-10.json",
-    "bare-gcd-50.json",
-    "bare-gcd-100.json"
+    "coremark.json"
+#    "bare-gcd.json",
+#    "bare-gcd-10.json",
+#    "bare-gcd-50.json",
+#    "bare-gcd-100.json"
 ]
 
 # Extract values from UART log
@@ -68,12 +73,42 @@ def update_yaml_file(hw_config, workload_name):
         yaml.dump(config, file)
     logging.info(f"Updated config_runtime.yaml with HW Config: {hw_config}, Workload: {workload_name}")
 
+def add_built_hwdb_entries():
+    destination_file = "/home/raghavgupta/hybrid-sim/chipyard/sims/firesim-staging/sample_config_hwdb.yaml"
+    for hw_config in DEFAULT_HW_CONFIGS:
+        source_file = f"deploy/built-hwdb-entries/{hw_config}"
+        try:
+            # Ensure the source file exists
+            if not os.path.exists(source_file):
+                raise FileNotFoundError(f"Source file '{source_file}' not found.")
+
+            # Read the source file
+            with open(source_file, 'r') as src:
+                content = src.read()
+
+            # Append the content to the destination file
+            with open(destination_file, 'a') as dest:
+                dest.write(content)
+
+            logging.info(f"Contents of '{source_file}' successfully appended to '{destination_file}'.")
+
+        except FileNotFoundError as e:
+            logging.error(e)
+
+        except Exception as e:
+            logging.error(f"An error occurred: {e}")
+
+        
+        
 # Main process
 def main():
+    
+    add_built_hwdb_entries()
+
     results = []
     for hw_config in DEFAULT_HW_CONFIGS:
         for workload_name in WORKLOAD_NAMES:
-            for run in range(10):
+            for run in range(NUM_ITERS):
                 logging.info(f"Running hw_config={hw_config}, workload={workload_name}, run={run+1}/10")
                 
                 # Update config file

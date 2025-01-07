@@ -9,8 +9,13 @@ values = [
 #    "xilinx_vcu118_firesim_smallboom_gcd_tl_bridge_singlecore_4GB_no_nic_10",
 #    "xilinx_vcu118_firesim_smallboom_gcd_tl_singlecore_4GB_no_nic_100",
 #    "xilinx_vcu118_firesim_smallboom_gcd_tl_bridge_singlecore_4GB_no_nic_100"
-    "xilinx_vcu118_firesim_smallboom_gcd_tl_singlecore_4GB_no_nic_50",
-    "xilinx_vcu118_firesim_smallboom_gcd_tl_bridge_singlecore_4GB_no_nic_50"
+#    "xilinx_vcu118_firesim_smallboom_gcd_tl_singlecore_4GB_no_nic_50",
+#    "xilinx_vcu118_firesim_smallboom_gcd_tl_bridge_singlecore_4GB_no_nic_50"
+#    "xilinx_vcu118_firesim_smallboom_mnl_prefetcher_singlecore_4GB_no_nic_10",
+#    "xilinx_vcu118_firesim_smallboom_ampm_prefetcher_singlecore_4GB_no_nic_10"
+    "xilinx_vcu118_firesim_smallboom_null_prefetcher_singlecore_4GB_no_nic_10",
+    "xilinx_vcu118_firesim_smallboom_null_prefetcher_singlecore_4GB_no_nic_50",
+    "xilinx_vcu118_firesim_smallboom_null_prefetcher_singlecore_4GB_no_nic_100"
 ]
 
 # Path to the YAML file
